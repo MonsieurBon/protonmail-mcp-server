@@ -1,0 +1,23 @@
+# protonmail-mcp-server
+
+> A Model Context Protocol (MCP) server providing read-only access to Proton Mail through Proton Bridge.
+
+## Tools
+
+- proton_list_folders: List all mailbox folders with message and unread counts
+- proton_list_emails: List emails in a folder with pagination, returns summaries (subject, from, date, snippet)
+- proton_search_emails: Search emails by sender, recipient, subject, body text, date range, read/flagged status
+- proton_get_email: Read a single email's full content by IMAP UID
+
+## Requirements
+
+- Proton Mail account (any plan)
+- Proton Bridge running locally (provides IMAP access)
+- Node.js 18+
+
+## Privacy
+
+- Read-only: cannot send, delete, or modify emails
+- No disk caching: email content is never written to the filesystem
+- Localhost-only: connects to Proton Bridge on 127.0.0.1 by default
+- No credential logging: Bridge password is never logged or exposed
