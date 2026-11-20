@@ -78,6 +78,20 @@ export const GetEmailInputSchema = z
 
 export type GetEmailInput = z.infer<typeof GetEmailInputSchema>;
 
+export const ReadAttachmentInputSchema = z
+  .object({
+    folder: FolderSchema.describe("Mailbox folder containing the email"),
+    uid: z.number().int().positive().describe("The IMAP UID of the email"),
+    attachment: z
+      .number()
+      .int()
+      .positive()
+      .describe("Attachment number as listed by proton_get_email (1 = first)")
+  })
+  .strict();
+
+export type ReadAttachmentInput = z.infer<typeof ReadAttachmentInputSchema>;
+
 export const SearchEmailsInputSchema = z
   .object({
     folder: FolderSchema

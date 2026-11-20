@@ -3,7 +3,7 @@
 A Model Context Protocol (MCP) server for Proton Mail — read and organize email through Proton Bridge. **It cannot send email and cannot permanently delete email.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22.12-brightgreen.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.13-brightgreen.svg)](https://nodejs.org/)
 
 > Fork of [de-Blanck/protonmail-mcp-server](https://github.com/de-Blanck/protonmail-mcp-server), adding tools to organize email (move, label, trash) while keeping sending impossible.
 
@@ -25,7 +25,7 @@ Connect Claude (or any MCP client) to your Proton Mail so it can search, list, r
 
 ## Prerequisites
 
-- **Node.js 22.12+**
+- **Node.js 22.13+**
 - **Proton Bridge** running on your machine with IMAP enabled
 - Your **Bridge-specific IMAP credentials** (not your Proton account password)
 
@@ -114,6 +114,11 @@ Read a single email's full content by IMAP UID.
 
 ### `proton_search_emails`
 Search emails by sender, recipient, subject, body text, date range, read/flagged status.
+
+### `proton_read_attachment`
+Extract the text of one attachment (PDF, plain text such as txt/csv/ics, or HTML), by its number in `proton_get_email`'s attachment list. Read-only. The tool description tells the assistant to ask before opening an attachment; to enforce that, set this tool to *Always ask* in your MCP client's tool permissions.
+
+Limits: 25 MB per attachment, the first 50 PDF pages, 25,000 characters of output. Images, Office documents and scanned PDFs without a text layer are not supported. PDFs are parsed with pdf.js (no eval, no XFA, no font loading or network access); nothing is written to disk.
 
 ### Write tools
 

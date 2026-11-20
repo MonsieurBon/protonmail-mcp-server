@@ -307,6 +307,49 @@ export async function getEmail(
   });
 }
 
+export interface AttachmentContent {
+  filename: string;
+  contentType: string;
+  size: number;
+  content: Buffer;
+}
+
+/**
+ * Fetch the n-th attachment (1-based, in the order proton_get_email lists
+ * them) of one email. Read-only; returns null if the email doesn't exist.
+ */
+export async function getAttachment(
+  folder: string,
+  uid: number,
+  number: number
+): Promise<{ attachment: AttachmentContent | null; count: number } | null> {
+  return withClient(async (client) => {
+    const mailbox = await client.getMailboxLock(folder, { readOnly: true });
+    try {
+      for await (const msg of client.fetch(String(uid), { uid: true, source: true }, { uid: true })) {
+        if (!msg.source) continue;
+        const parsed: ParsedMail = await simpleParser(msg.source) as ParsedMail;
+        const list = parsed.attachments ?? [];
+        const att = list[number - 1];
+        return {
+          count: list.length,
+          attachment: att
+            ? {
+                filename: att.filename ?? "unnamed",
+                contentType: att.contentType ?? "application/octet-stream",
+                size: att.size ?? att.content.length,
+                content: att.content
+              }
+            : null
+        };
+      }
+      return null;
+    } finally {
+      mailbox.release();
+    }
+  });
+}
+
 /**
  * Search emails using IMAP SEARCH criteria.
  */
