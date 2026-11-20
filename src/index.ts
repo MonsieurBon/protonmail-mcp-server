@@ -314,7 +314,7 @@ Images, Office documents and other binary formats are not supported. Scanned PDF
         };
       }
       const att = found.attachment;
-      const result = await extractAttachmentText(att.content, att.contentType, att.filename);
+      const result = await extractAttachmentText(att.content, att.contentType, att.filename, att.charset);
       const header = [
         `# ${att.filename}`,
         "",

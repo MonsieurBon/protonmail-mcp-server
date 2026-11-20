@@ -71,18 +71,12 @@ async function pdfToText(data: Uint8Array): Promise<Omit<AttachmentText, "kind">
     for (let n = 1; n <= last; n++) {
       const page = await doc.getPage(n);
       const content = await page.getTextContent();
-      let line = "";
-      const lines: string[] = [];
-      for (const item of content.items) {
-        if (!("str" in item)) continue;
-        line += item.str;
-        if (item.hasEOL) {
-          lines.push(line);
-          line = "";
-        }
-      }
-      if (line) lines.push(line);
-      const text = lines.join("\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      const items = content.items.flatMap((item) =>
+        "str" in item
+          ? [{ str: item.str, transform: item.transform as number[], width: item.width, height: item.height, hasEOL: item.hasEOL }]
+          : []
+      );
+      const text = joinTextItems(items).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
       parts.push(pageCount > 1 ? `--- Seite ${n} ---\n${text}` : text);
       page.cleanup();
     }
@@ -92,10 +86,80 @@ async function pdfToText(data: Uint8Array): Promise<Omit<AttachmentText, "kind">
   }
 }
 
+export interface PositionedText {
+  str: string;
+  /** [a, b, c, d, x, y] text matrix; x/y is the item's origin in PDF units */
+  transform: number[];
+  width: number;
+  height: number;
+  hasEOL: boolean;
+}
+
+/**
+ * Join pdf.js text items into lines. Many generators (Word among them) place
+ * each word as its own item with no space character between them, so a gap
+ * on the same baseline becomes a space, and a jump in y becomes a new line,
+ * even when pdf.js did not flag an end of line.
+ */
+export function joinTextItems(items: PositionedText[]): string {
+  const lines: string[] = [];
+  let line = "";
+  let prev: { x: number; y: number; end: number; size: number } | null = null;
+  for (const item of items) {
+    const [, , c, d, x, y] = item.transform;
+    const size = Math.hypot(c, d) || item.height || 10;
+    if (item.str) {
+      if (prev) {
+        if (Math.abs(y - prev.y) > Math.max(size, prev.size) * 0.5) {
+          lines.push(line);
+          line = "";
+        } else if (
+          x - prev.end > Math.max(size, prev.size) * 0.15 &&
+          !/\s$/.test(line) &&
+          !/^\s/.test(item.str)
+        ) {
+          line += " ";
+        }
+      }
+      line += item.str;
+      prev = { x, y, end: x + item.width, size };
+    }
+    if (item.hasEOL) {
+      lines.push(line);
+      line = "";
+      prev = null;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join("\n");
+}
+
+/**
+ * Decode a text attachment. Uses the declared charset when there is one;
+ * otherwise UTF-8 if the bytes are valid UTF-8, else Windows-1252 (what old
+ * Excel CSV exports and many Swiss/German tools write).
+ */
+export function decodeText(content: Buffer, charset?: string): string {
+  const bytes = new Uint8Array(content);
+  if (charset) {
+    try {
+      return new TextDecoder(charset.trim().toLowerCase()).decode(bytes);
+    } catch {
+      // unknown label: fall through to detection
+    }
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
+}
+
 export async function extractAttachmentText(
   content: Buffer,
   contentType: string,
-  filename: string
+  filename: string,
+  charset?: string
 ): Promise<AttachmentText> {
   const kind = attachmentKind(contentType, filename);
   if (!kind) {
@@ -112,8 +176,8 @@ export async function extractAttachmentText(
     case "pdf":
       return { kind, ...(await pdfToText(new Uint8Array(content))) };
     case "html":
-      return { kind, text: htmlToPlainText(content.toString("utf8")) };
+      return { kind, text: htmlToPlainText(decodeText(content, charset)) };
     case "text":
-      return { kind, text: content.toString("utf8").trim() };
+      return { kind, text: decodeText(content, charset).replace(/^\uFEFF/, "").trim() };
   }
 }

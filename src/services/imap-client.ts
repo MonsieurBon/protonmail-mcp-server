@@ -311,6 +311,8 @@ export interface AttachmentContent {
   filename: string;
   contentType: string;
   size: number;
+  /** charset parameter of the attachment's Content-Type, if any */
+  charset?: string;
   content: Buffer;
 }
 
@@ -318,6 +320,11 @@ export interface AttachmentContent {
  * Fetch the n-th attachment (1-based, in the order proton_get_email lists
  * them) of one email. Read-only; returns null if the email doesn't exist.
  */
+function charsetOf(att: Attachment): string | undefined {
+  const header = att.headers?.get("content-type") as { params?: Record<string, string> } | string | undefined;
+  return typeof header === "object" ? header?.params?.charset : undefined;
+}
+
 export async function getAttachment(
   folder: string,
   uid: number,
@@ -338,6 +345,7 @@ export async function getAttachment(
                 filename: att.filename ?? "unnamed",
                 contentType: att.contentType ?? "application/octet-stream",
                 size: att.size ?? att.content.length,
+                charset: charsetOf(att),
                 content: att.content
               }
             : null
