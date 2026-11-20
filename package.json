@@ -20,13 +20,13 @@
   "author": "Rune Højgaard de Blanck",
   "repository": {
     "type": "git",
-    "url": "https://github.com/de-blanck/protonmail-mcp-server"
+    "url": "https://github.com/MonsieurBon/protonmail-mcp-server"
   },
   "keywords": ["mcp", "proton", "protonmail", "email", "imap", "claude", "model-context-protocol", "ai", "llm"],
   "bugs": {
-    "url": "https://github.com/de-blanck/protonmail-mcp-server/issues"
+    "url": "https://github.com/MonsieurBon/protonmail-mcp-server/issues"
   },
-  "homepage": "https://github.com/de-blanck/protonmail-mcp-server#readme",
+  "homepage": "https://github.com/MonsieurBon/protonmail-mcp-server#readme",
   "engines": {
     "node": ">=18"
   },

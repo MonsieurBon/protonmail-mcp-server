@@ -5,6 +5,8 @@ A Model Context Protocol (MCP) server for Proton Mail — read and organize emai
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
 
+> Fork of [de-Blanck/protonmail-mcp-server](https://github.com/de-Blanck/protonmail-mcp-server), adding tools to organize email (move, label, trash) while keeping sending impossible.
+
 Connect Claude (or any MCP client) to your Proton Mail so it can search, list, read, move, label, and trash your email — without your email ever leaving your machine.
 
 ## Features
