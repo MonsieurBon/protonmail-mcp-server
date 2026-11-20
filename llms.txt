@@ -8,6 +8,7 @@
 - proton_list_emails: List emails in a folder with pagination, returns summaries (subject, from, date, snippet)
 - proton_search_emails: Search emails by sender, recipient, subject, body text, date range, read/flagged status
 - proton_get_email: Read a single email's full content by IMAP UID
+- proton_read_attachment: Extract text from one attachment (PDF, text, HTML); ask the user first
 - proton_move_emails: Move emails between INBOX, Archive and Folders/* (max 50 per call)
 - proton_trash_emails: Move emails to Trash, recoverable; there is no permanent delete (max 50 per call)
 - proton_label_emails: Apply an existing label (Labels/*) without moving the email
@@ -17,7 +18,7 @@
 
 - Paid Proton Mail plan (Proton Bridge is not available on the free plan)
 - Proton Bridge running locally (provides IMAP access)
-- Node.js 22.12+
+- Node.js 22.13+
 
 ## Privacy
 

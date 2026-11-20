@@ -7,6 +7,7 @@
 
 import { ImapFlow, MailboxObject } from "imapflow";
 import { simpleParser, ParsedMail, AddressObject, Attachment } from "mailparser";
+import { bodyText, stripDataUris } from "./body-text.js";
 import {
   DEFAULT_BRIDGE_HOST,
   DEFAULT_BRIDGE_PORT,
@@ -108,7 +109,7 @@ function parseAddresses(
 
 /** Extract a plain-text snippet from a parsed email */
 function extractSnippet(parsed: ParsedMail, maxLength = 200): string {
-  const text = parsed.text ?? "";
+  const text = bodyText(parsed);
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength).trimEnd() + "...";
 }
@@ -150,14 +151,14 @@ function toEmailFull(
   folder: string,
   flags: Set<string> | undefined
 ): EmailFull {
-  let html = parsed.html || "";
+  let html = stripDataUris(parsed.html || "");
   if (html.length > MAX_HTML_LENGTH) {
     html = html.slice(0, MAX_HTML_LENGTH) + "\n<!-- HTML truncated -->";
   }
 
   return {
     ...toEmailMessage(uid, parsed, folder, flags),
-    body: parsed.text ?? "",
+    body: bodyText(parsed),
     html,
     attachments: (parsed.attachments ?? []).map(
       (att: Attachment): AttachmentInfo => ({
@@ -300,6 +301,57 @@ export async function getEmail(
       }
 
       return result;
+    } finally {
+      mailbox.release();
+    }
+  });
+}
+
+export interface AttachmentContent {
+  filename: string;
+  contentType: string;
+  size: number;
+  /** charset parameter of the attachment's Content-Type, if any */
+  charset?: string;
+  content: Buffer;
+}
+
+/**
+ * Fetch the n-th attachment (1-based, in the order proton_get_email lists
+ * them) of one email. Read-only; returns null if the email doesn't exist.
+ */
+function charsetOf(att: Attachment): string | undefined {
+  const header = att.headers?.get("content-type") as { params?: Record<string, string> } | string | undefined;
+  return typeof header === "object" ? header?.params?.charset : undefined;
+}
+
+export async function getAttachment(
+  folder: string,
+  uid: number,
+  number: number
+): Promise<{ attachment: AttachmentContent | null; count: number } | null> {
+  return withClient(async (client) => {
+    const mailbox = await client.getMailboxLock(folder, { readOnly: true });
+    try {
+      for await (const msg of client.fetch(String(uid), { uid: true, source: true }, { uid: true })) {
+        if (!msg.source) continue;
+        const parsed: ParsedMail = await simpleParser(msg.source) as ParsedMail;
+        const list = parsed.attachments ?? [];
+        const att = list[number - 1];
+        return {
+          count: list.length,
+          attachment: att
+            ? {
+                filename: att.filename ?? "unnamed",
+                contentType: att.contentType ?? "application/octet-stream",
+                size: att.size ?? att.content.length,
+                charset: charsetOf(att),
+                content: att.content
+              }
+            : null
+        };
+      }
+      return null;
     } finally {
       mailbox.release();
     }

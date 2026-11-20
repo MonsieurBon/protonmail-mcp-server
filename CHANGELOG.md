@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `proton_read_attachment`: extract text from PDF, text and HTML attachments (pdf.js, no eval/XFA/font loading; 25 MB, 50 pages, 25k characters). Its description asks the assistant to get the user's consent first
 - `proton_move_emails`: move emails between INBOX, Archive and `Folders/*`
 - `proton_trash_emails`: move emails to Trash (recoverable; no permanent delete)
 - `proton_label_emails` / `proton_unlabel_emails`: add or remove existing Proton labels
@@ -15,8 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI: build, test and production `npm audit` on Node 22 and 24
 
 ### Changed
+- Mails with only an HTML part (common for Outlook mails with an inline signature image) no longer come back with an empty body and snippet: the HTML is converted to text. Inline `data:` images are stripped from the returned HTML
 - Read tools now open mailboxes read-only (`EXAMINE`). Write tools use `SELECT`: Proton Bridge refuses even `COPY` from a mailbox opened with `EXAMINE`
-- Node.js 22.12+ is now required (dependencies need Node 20.19+, the test runner 22.12+)
+- Node.js 22.13+ is now required (pdf.js needs 22.13+, the test runner 22.12+)
 
 ### Security
 - Still no SMTP and no send capability

@@ -137,10 +137,11 @@ export function formatEmailFull(
 
   if (email.attachments.length) {
     lines.push("## Attachments");
-    for (const att of email.attachments) {
+    email.attachments.forEach((att, i) => {
       const sizeKb = Math.round(att.size / 1024);
-      lines.push(`- ${att.filename} (${att.contentType}, ${sizeKb} KB)`);
-    }
+      lines.push(`${i + 1}. ${att.filename} (${att.contentType}, ${sizeKb} KB)`);
+    });
+    lines.push("", "_To read one, ask the user first, then call proton_read_attachment with its number._");
     lines.push("");
   }
 
