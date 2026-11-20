@@ -1,11 +1,13 @@
 # protonmail-mcp-server
 
-A Model Context Protocol (MCP) server for Proton Mail — read-only email access through Proton Bridge.
+A Model Context Protocol (MCP) server for Proton Mail — read and organize email through Proton Bridge. **It cannot send email and cannot permanently delete email.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.12-brightgreen.svg)](https://nodejs.org/)
 
-Connect Claude (or any MCP client) to your Proton Mail so it can search, list, and read your email — without your email ever leaving your machine.
+> Fork of [de-Blanck/protonmail-mcp-server](https://github.com/de-Blanck/protonmail-mcp-server), adding tools to organize email (move, label, trash) while keeping sending impossible.
+
+Connect Claude (or any MCP client) to your Proton Mail so it can search, list, read, move, label, and trash your email — without your email ever leaving your machine.
 
 ## Features
 
@@ -13,13 +15,17 @@ Connect Claude (or any MCP client) to your Proton Mail so it can search, list, a
 - **List emails** with pagination, sorted newest first
 - **Search emails** by sender, recipient, subject, body text, date range, read/flagged status
 - **Read full email content** by IMAP UID, including attachment metadata
+- **Move emails** between INBOX, Archive and your folders
+- **Label and unlabel emails** with your existing Proton labels
+- **Trash emails** (recoverable — there is no permanent delete)
+- **No sending** — there is no SMTP code in this server at all
 - **Markdown and JSON** response formats
 - **Input validation** via Zod schemas
 - **Connection timeouts** to prevent resource exhaustion
 
 ## Prerequisites
 
-- **Node.js 18+**
+- **Node.js 22.12+**
 - **Proton Bridge** running on your machine with IMAP enabled
 - Your **Bridge-specific IMAP credentials** (not your Proton account password)
 
@@ -109,9 +115,30 @@ Read a single email's full content by IMAP UID.
 ### `proton_search_emails`
 Search emails by sender, recipient, subject, body text, date range, read/flagged status.
 
+### Write tools
+
+All write tools take a source `folder` and the `uids` of emails in that folder (max 50 per call). They never create folders or labels, and never touch emails in Trash or Spam.
+
+| Tool | What it does | Allowed source | Allowed target |
+|---|---|---|---|
+| `proton_move_emails` | Moves emails | INBOX, Archive, Sent, `Folders/*` | INBOX, Archive, `Folders/*` |
+| `proton_trash_emails` | Moves emails to Trash (recoverable) | INBOX, Archive, Sent, `Folders/*` | Trash |
+| `proton_label_emails` | Adds a label; the email stays where it is | any except Trash/Spam | `Labels/*` |
+| `proton_unlabel_emails` | Removes a label; the email is not moved or deleted | any except Trash/Spam | `Labels/*` |
+
+How these map onto Proton Bridge's IMAP model: labelling is a `COPY` into `Labels/<name>`; unlabelling finds the email inside `Labels/<name>` by Message-ID, size and internal date, and expunges it *from that label mailbox only*, which Bridge interprets as removing the label. That is the only `EXPUNGE` the server ever issues. If more than one copy in the label matches, the email is skipped rather than guessed.
+
+A write is only reported as applied once the IMAP server has confirmed it (via the UIDPLUS map where available); a rejected command is returned as an error.
+
+`proton_trash_emails` is annotated `destructiveHint: true`, so MCP clients that support it can ask for confirmation before running it.
+
 ## Privacy & Security
 
-- **Read-only** — all four tools are read-only; no email modification, deletion, or sending
+- **No sending** — no SMTP client, no send tool
+- **No permanent deletion** — deleting means moving to Trash; emails in Trash and Spam are never touched
+- **Read tools open mailboxes read-only** (`EXAMINE`), so reading can never change anything
+- **Bounded writes** — at most 50 emails per call; folders and labels are never created
+- **Policy checks before connecting** — a refused request never opens an IMAP session
 - **Localhost-only by default** — connects to Proton Bridge on `127.0.0.1`; TLS certificate validation is enforced for non-localhost connections
 - **No disk caching** — opens a fresh IMAP connection per request, no email data is stored on disk
 - **No credential logging** — your Bridge password is never logged, printed, or exposed in error messages
@@ -127,8 +154,11 @@ This server implements the [Model Context Protocol](https://modelcontextprotocol
 - Read and summarize email content
 - Answer questions about your email (e.g., "What did Alice say about the quarterly report?")
 - List your mailbox folders and their message counts
+- Archive, file, label, and trash emails
 
-All operations are **read-only** — the assistant cannot send, delete, or modify your emails.
+The assistant **cannot send email** and **cannot permanently delete email**: trashed emails stay recoverable in Proton Mail until you empty Trash yourself.
+
+> Emails can contain text written to manipulate an AI assistant (prompt injection). With write tools enabled, a malicious email could try to get the assistant to trash or move other emails. The Trash-only delete and the 50-email limit keep that recoverable, but consider having your client confirm write tool calls.
 
 ## Development
 

@@ -79,7 +79,7 @@ function getConfig(): ImapConfig {
  * Execute a callback with a connected IMAP client.
  * Handles connection lifecycle automatically.
  */
-async function withClient<T>(
+export async function withClient<T>(
   callback: (client: ImapFlow) => Promise<T>
 ): Promise<T> {
   const config = getConfig();
@@ -235,7 +235,7 @@ export async function listEmails(
   offset: number
 ): Promise<{ total: number; emails: EmailMessage[] }> {
   return withClient(async (client) => {
-    const mailbox = await client.getMailboxLock(folder);
+    const mailbox = await client.getMailboxLock(folder, { readOnly: true });
     try {
       const total = (client.mailbox as MailboxObject)?.exists ?? 0;
 
@@ -284,7 +284,7 @@ export async function getEmail(
   uid: number
 ): Promise<EmailFull | null> {
   return withClient(async (client) => {
-    const mailbox = await client.getMailboxLock(folder);
+    const mailbox = await client.getMailboxLock(folder, { readOnly: true });
     try {
       let result: EmailFull | null = null;
 
@@ -325,7 +325,7 @@ export async function searchEmails(
   offset: number
 ): Promise<{ total: number; emails: EmailMessage[] }> {
   return withClient(async (client) => {
-    const mailbox = await client.getMailboxLock(folder);
+    const mailbox = await client.getMailboxLock(folder, { readOnly: true });
     try {
       // Build IMAP search query
       const searchCriteria: Record<string, unknown> = {};

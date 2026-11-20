@@ -1,6 +1,6 @@
 # protonmail-mcp-server
 
-> A Model Context Protocol (MCP) server providing read-only access to Proton Mail through Proton Bridge.
+> A Model Context Protocol (MCP) server for reading and organizing Proton Mail through Proton Bridge. It cannot send email and cannot permanently delete email.
 
 ## Tools
 
@@ -8,16 +8,20 @@
 - proton_list_emails: List emails in a folder with pagination, returns summaries (subject, from, date, snippet)
 - proton_search_emails: Search emails by sender, recipient, subject, body text, date range, read/flagged status
 - proton_get_email: Read a single email's full content by IMAP UID
+- proton_move_emails: Move emails between INBOX, Archive and Folders/* (max 50 per call)
+- proton_trash_emails: Move emails to Trash, recoverable; there is no permanent delete (max 50 per call)
+- proton_label_emails: Apply an existing label (Labels/*) without moving the email
+- proton_unlabel_emails: Remove a label without moving or deleting the email
 
 ## Requirements
 
-- Proton Mail account (any plan)
+- Paid Proton Mail plan (Proton Bridge is not available on the free plan)
 - Proton Bridge running locally (provides IMAP access)
-- Node.js 18+
+- Node.js 22.12+
 
 ## Privacy
 
-- Read-only: cannot send, delete, or modify emails
+- No sending and no permanent deletion; never touches emails in Trash or Spam
 - No disk caching: email content is never written to the filesystem
 - Localhost-only: connects to Proton Bridge on 127.0.0.1 by default
 - No credential logging: Bridge password is never logged or exposed

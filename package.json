@@ -1,7 +1,7 @@
 {
   "name": "protonmail-mcp-server",
   "version": "1.0.0",
-  "description": "A Model Context Protocol (MCP) server for Proton Mail — read-only email access through Proton Bridge.",
+  "description": "A Model Context Protocol (MCP) server for Proton Mail — read and organize email through Proton Bridge, without sending.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -13,32 +13,34 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test": "vitest run"
   },
   "license": "MIT",
   "author": "Rune Højgaard de Blanck",
   "repository": {
     "type": "git",
-    "url": "https://github.com/de-blanck/protonmail-mcp-server"
+    "url": "https://github.com/MonsieurBon/protonmail-mcp-server"
   },
   "keywords": ["mcp", "proton", "protonmail", "email", "imap", "claude", "model-context-protocol", "ai", "llm"],
   "bugs": {
-    "url": "https://github.com/de-blanck/protonmail-mcp-server/issues"
+    "url": "https://github.com/MonsieurBon/protonmail-mcp-server/issues"
   },
-  "homepage": "https://github.com/de-blanck/protonmail-mcp-server#readme",
+  "homepage": "https://github.com/MonsieurBon/protonmail-mcp-server#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.12.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.1",
-    "zod": "^3.23.8"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.6",
     "@types/node": "^22.10.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^5.1.1"
   }
 }
