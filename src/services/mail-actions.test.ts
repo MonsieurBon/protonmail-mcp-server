@@ -25,6 +25,7 @@ type Call =
 /** Minimal in-memory stand-in for ImapFlow that records every write. */
 class FakeImap {
   selected: string | null = null;
+  selectedReadOnly = false;
   calls: Call[] = [];
   /** Simulate imapflow swallowing a server NO: the write returns false. */
   failWrites = false;
@@ -52,6 +53,7 @@ class FakeImap {
   async getMailboxLock(path: string, opts?: { readOnly?: boolean }) {
     if (!(path in this.mailboxes)) throw new Error("Mailbox not found");
     this.selected = path;
+    this.selectedReadOnly = !!opts?.readOnly;
     this.calls.push({ op: "lock", path, readOnly: !!opts?.readOnly });
     return { path, release: () => { this.selected = null; } };
   }
@@ -87,6 +89,9 @@ class FakeImap {
   }
 
   async messageCopy(range: string, to: string) {
+    // Like Proton Bridge (gluon): COPY is refused in a read-only (EXAMINE) mailbox,
+    // and imapflow turns the NO into `false`.
+    if (this.selectedReadOnly) return false;
     this.calls.push({ op: "copy", from: this.selected!, range, to });
     return this.copyResponse(range, to);
   }
@@ -238,9 +243,9 @@ describe("trashEmailsWith", () => {
 });
 
 describe("labelEmailsWith", () => {
-  it("inspects the source read-only", async () => {
+  it("opens the source read-write, because Proton Bridge refuses COPY under EXAMINE", async () => {
     await labelEmailsWith(client, "INBOX", "Important", [10]);
-    expect(imap.calls[0]).toEqual({ op: "lock", path: "INBOX", readOnly: true });
+    expect(imap.calls[0]).toEqual({ op: "lock", path: "INBOX", readOnly: false });
   });
 
   it("copies into the label mailbox and leaves the source alone", async () => {

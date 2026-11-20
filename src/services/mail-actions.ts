@@ -186,8 +186,10 @@ export async function labelEmailsWith(
   const valid = validateUids(uids);
   await assertMailboxExists(client, labelPath);
 
-  // COPY does not modify the source mailbox, so it can run under EXAMINE.
-  const lock = await client.getMailboxLock(source, { readOnly: true });
+  // RFC 3501 allows COPY from a mailbox opened with EXAMINE, but Proton Bridge
+  // (gluon, internal/session/handle_copy.go) rejects it with "the mailbox is
+  // read-only". COPY never modifies the source, so a read-write SELECT is safe.
+  const lock = await client.getMailboxLock(source);
   try {
     const present = await existingUids(client, valid);
     if (present.length === 0) return result("label", source, labelPath, valid, []);
