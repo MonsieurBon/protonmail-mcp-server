@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI: build, test and production `npm audit` on Node 22 and 24
 
 ### Changed
+- Mails with only an HTML part (common for Outlook mails with an inline signature image) no longer come back with an empty body and snippet: the HTML is converted to text. Inline `data:` images are stripped from the returned HTML
 - Read tools now open mailboxes read-only (`EXAMINE`). Write tools use `SELECT`: Proton Bridge refuses even `COPY` from a mailbox opened with `EXAMINE`
 - Node.js 22.12+ is now required (dependencies need Node 20.19+, the test runner 22.12+)
 

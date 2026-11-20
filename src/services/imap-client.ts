@@ -7,6 +7,7 @@
 
 import { ImapFlow, MailboxObject } from "imapflow";
 import { simpleParser, ParsedMail, AddressObject, Attachment } from "mailparser";
+import { bodyText, stripDataUris } from "./body-text.js";
 import {
   DEFAULT_BRIDGE_HOST,
   DEFAULT_BRIDGE_PORT,
@@ -108,7 +109,7 @@ function parseAddresses(
 
 /** Extract a plain-text snippet from a parsed email */
 function extractSnippet(parsed: ParsedMail, maxLength = 200): string {
-  const text = parsed.text ?? "";
+  const text = bodyText(parsed);
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength).trimEnd() + "...";
 }
@@ -150,14 +151,14 @@ function toEmailFull(
   folder: string,
   flags: Set<string> | undefined
 ): EmailFull {
-  let html = parsed.html || "";
+  let html = stripDataUris(parsed.html || "");
   if (html.length > MAX_HTML_LENGTH) {
     html = html.slice(0, MAX_HTML_LENGTH) + "\n<!-- HTML truncated -->";
   }
 
   return {
     ...toEmailMessage(uid, parsed, folder, flags),
-    body: parsed.text ?? "",
+    body: bodyText(parsed),
     html,
     attachments: (parsed.attachments ?? []).map(
       (att: Attachment): AttachmentInfo => ({
