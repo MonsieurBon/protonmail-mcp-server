@@ -450,7 +450,7 @@ server.registerTool(
     title: "Remove Label from Proton Mail Emails",
     description: `Remove a label from emails. The emails themselves are not moved or deleted.
 
-Pass the folder and UIDs where you found the emails (e.g. INBOX); they are matched inside the label by Message-ID.
+Pass the folder and UIDs where you found the emails (e.g. INBOX); they are matched inside the label by Message-ID, size and date. Ambiguous matches are skipped.
 ${WRITE_TOOL_NOTES}
 
 Examples:

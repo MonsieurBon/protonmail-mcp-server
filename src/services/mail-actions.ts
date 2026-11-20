@@ -75,6 +75,38 @@ async function existingUids(client: MailClient, uids: number[]): Promise<number[
   return found.sort((a, b) => a - b);
 }
 
+/**
+ * imapflow's messageMove/messageCopy/messageDelete do not throw when the
+ * server rejects a command: they log the error and return `false` (or
+ * `undefined` when no mailbox is selected). Turn that into an exception so
+ * a failed write can never be reported as applied.
+ */
+function assertSucceeded<T>(response: T | false | undefined, what: string): T {
+  if (response === false || response === undefined) {
+    throw new Error(`${what} failed on the IMAP server; nothing was reported as changed. Check Proton Bridge and try again.`);
+  }
+  return response;
+}
+
+/**
+ * Split requested UIDs into confirmed and unconfirmed using the UIDPLUS
+ * map from COPY/MOVE. Without a map (no UIDPLUS), a successful command
+ * applies to every UID sent, per RFC 3501/6851.
+ */
+function confirmed(
+  sent: number[],
+  response: { uidMap?: Map<number, number> } | boolean
+): { applied: number[]; skipped: ActionResult["skipped"] } {
+  const uidMap = typeof response === "object" ? response.uidMap : undefined;
+  if (!uidMap) return { applied: sent, skipped: [] };
+  return {
+    applied: sent.filter((uid) => uidMap.has(uid)),
+    skipped: sent
+      .filter((uid) => !uidMap.has(uid))
+      .map((uid) => ({ uid, reason: "server did not confirm this message" }))
+  };
+}
+
 function result(
   action: ActionResult["action"],
   source: string,
@@ -102,13 +134,19 @@ async function moveInternal(
   uids: number[]
 ): Promise<ActionResult> {
   await assertMailboxExists(client, destination);
+  // MOVE removes messages from the source, so it needs a read-write SELECT.
+  // Verifying UIDs under the same lock is side-effect free (FETCH UID only)
+  // and avoids a gap between checking and moving.
   const lock = await client.getMailboxLock(source);
   try {
     const present = await existingUids(client, uids);
-    if (present.length > 0) {
-      await client.messageMove(present.join(","), destination, { uid: true });
-    }
-    return result(action, source, destination, uids, present);
+    if (present.length === 0) return result(action, source, destination, uids, []);
+    const response = assertSucceeded(
+      await client.messageMove(present.join(","), destination, { uid: true }),
+      action === "trash" ? "Moving to Trash" : "Move"
+    );
+    const { applied, skipped } = confirmed(present, response);
+    return result(action, source, destination, uids, applied, skipped);
   } finally {
     lock.release();
   }
@@ -148,17 +186,36 @@ export async function labelEmailsWith(
   const valid = validateUids(uids);
   await assertMailboxExists(client, labelPath);
 
-  const lock = await client.getMailboxLock(source);
+  // COPY does not modify the source mailbox, so it can run under EXAMINE.
+  const lock = await client.getMailboxLock(source, { readOnly: true });
   try {
     const present = await existingUids(client, valid);
-    if (present.length > 0) {
-      // COPY into a Labels/* mailbox applies the label; the message stays where it is.
-      await client.messageCopy(present.join(","), labelPath, { uid: true });
-    }
-    return result("label", source, labelPath, valid, present);
+    if (present.length === 0) return result("label", source, labelPath, valid, []);
+    // COPY into a Labels/* mailbox applies the label; the message stays where it is.
+    const response = assertSucceeded(
+      await client.messageCopy(present.join(","), labelPath, { uid: true }),
+      "Applying the label"
+    );
+    const { applied, skipped } = confirmed(present, response);
+    return result("label", source, labelPath, valid, applied, skipped);
   } finally {
     lock.release();
   }
+}
+
+/** What identifies "the same message" across Bridge mailboxes. */
+interface Fingerprint {
+  messageId: string;
+  size: number;
+  internalDate: number;
+}
+
+function sameMessage(a: Fingerprint, b: Omit<Fingerprint, "messageId">): boolean {
+  return a.size === b.size && a.internalDate === b.internalDate;
+}
+
+function toTime(date: Date | string | undefined): number {
+  return date ? new Date(date).getTime() : NaN;
 }
 
 export async function unlabelEmailsWith(
@@ -172,51 +229,76 @@ export async function unlabelEmailsWith(
   const valid = validateUids(uids);
   await assertMailboxExists(client, labelPath);
 
-  // 1. Read the Message-IDs of the requested messages (read-only).
-  const messageIds = new Map<number, string>();
+  // 1. Fingerprint the requested messages (read-only).
+  const fingerprints = new Map<number, Fingerprint>();
   const present: number[] = [];
   const sourceLock = await client.getMailboxLock(source, { readOnly: true });
   try {
-    for await (const msg of client.fetch(valid.join(","), { uid: true, envelope: true }, { uid: true })) {
+    for await (const msg of client.fetch(
+      valid.join(","),
+      { uid: true, envelope: true, size: true, internalDate: true },
+      { uid: true }
+    )) {
       present.push(msg.uid);
-      const id = msg.envelope?.messageId;
-      if (id) messageIds.set(msg.uid, id);
+      const messageId = msg.envelope?.messageId;
+      if (messageId && msg.size !== undefined) {
+        fingerprints.set(msg.uid, { messageId, size: msg.size, internalDate: toTime(msg.internalDate) });
+      }
     }
   } finally {
     sourceLock.release();
   }
 
   const skipped: ActionResult["skipped"] = present
-    .filter((uid) => !messageIds.has(uid))
+    .filter((uid) => !fingerprints.has(uid))
     .map((uid) => ({ uid, reason: "message has no Message-ID header" }));
 
-  // 2. Find the same messages inside the label mailbox and expunge them there.
-  //    UIDs differ per mailbox, so the match is by Message-ID.
-  const applied: number[] = [];
+  // 2. Find exactly one matching copy inside the label mailbox and expunge it there.
+  //    UIDs differ per mailbox. Message-ID alone is not unique (a sent copy and the
+  //    received copy of the same mail share it), so candidates must also match
+  //    size and internal date, and anything ambiguous is skipped rather than guessed.
+  const matches = new Map<number, number>(); // source UID -> label UID
   const labelLock = await client.getMailboxLock(labelPath);
   try {
     // Defence in depth: never expunge outside a label mailbox.
     if (!isLabel(labelPath)) {
       throw new Error(`Refusing to remove messages from non-label mailbox '${labelPath}'.`);
     }
-    const labelUids: number[] = [];
-    for (const [uid, messageId] of messageIds) {
-      const found = await client.search({ header: { "message-id": messageId } }, { uid: true });
-      if (Array.isArray(found) && found.length > 0) {
-        labelUids.push(...found);
-        applied.push(uid);
-      } else {
+    for (const [uid, fp] of fingerprints) {
+      const found = await client.search({ header: { "message-id": fp.messageId } }, { uid: true });
+      const candidates = Array.isArray(found) ? found : [];
+      const exact: number[] = [];
+      if (candidates.length > 0) {
+        for await (const msg of client.fetch(
+          candidates.join(","),
+          { uid: true, size: true, internalDate: true },
+          { uid: true }
+        )) {
+          if (sameMessage(fp, { size: msg.size ?? -1, internalDate: toTime(msg.internalDate) })) {
+            exact.push(msg.uid);
+          }
+        }
+      }
+      if (exact.length === 1) {
+        matches.set(uid, exact[0]);
+      } else if (exact.length === 0) {
         skipped.push({ uid, reason: `does not have label '${labelPath}'` });
+      } else {
+        skipped.push({ uid, reason: `ambiguous: ${exact.length} identical copies in '${labelPath}', left unchanged` });
       }
     }
-    if (labelUids.length > 0) {
-      await client.messageDelete([...new Set(labelUids)].join(","), { uid: true });
+    if (matches.size > 0) {
+      assertSucceeded(
+        await client.messageDelete([...matches.values()].join(","), { uid: true }),
+        "Removing the label"
+      );
     }
   } finally {
     labelLock.release();
   }
 
-  return result("unlabel", source, labelPath, valid, applied.sort((a, b) => a - b), skipped);
+  const applied = [...matches.keys()].sort((a, b) => a - b);
+  return result("unlabel", source, labelPath, valid, applied, skipped);
 }
 
 // ── Connection-managing wrappers used by the MCP tools ──────────

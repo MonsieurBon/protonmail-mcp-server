@@ -17,7 +17,7 @@
 
 - Paid Proton Mail plan (Proton Bridge is not available on the free plan)
 - Proton Bridge running locally (provides IMAP access)
-- Node.js 18+
+- Node.js 22.12+
 
 ## Privacy
 

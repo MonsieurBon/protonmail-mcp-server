@@ -12,6 +12,8 @@ import { FolderPolicyError, toLabelPath, normalizeFolder } from "./folder-policy
 interface FakeMessage {
   uid: number;
   messageId?: string;
+  size?: number;
+  date?: string;
 }
 
 type Call =
@@ -24,6 +26,12 @@ type Call =
 class FakeImap {
   selected: string | null = null;
   calls: Call[] = [];
+  /** Simulate imapflow swallowing a server NO: the write returns false. */
+  failWrites = false;
+  /** Simulate a server that doesn't support UIDPLUS: no uidMap returned. */
+  noUidPlus = false;
+  /** UIDs the server leaves out of the UIDPLUS map (partial confirmation). */
+  unconfirmed = new Set<number>();
 
   constructor(public mailboxes: Record<string, FakeMessage[]>) {}
 
@@ -51,8 +59,21 @@ class FakeImap {
   async *fetch(range: string) {
     const wanted = new Set(this.uids(range));
     for (const m of this.current().filter((m) => wanted.has(m.uid))) {
-      yield { uid: m.uid, envelope: { messageId: m.messageId } };
+      yield {
+        uid: m.uid,
+        envelope: { messageId: m.messageId },
+        size: m.size ?? 1000,
+        internalDate: new Date(m.date ?? "2026-01-01T00:00:00Z")
+      };
     }
+  }
+
+  private copyResponse(range: string, to: string) {
+    if (this.failWrites) return false;
+    if (this.noUidPlus) return { path: this.selected!, destination: to };
+    const uidMap = new Map<number, number>();
+    for (const uid of this.uids(range)) if (!this.unconfirmed.has(uid)) uidMap.set(uid, uid + 1000);
+    return { path: this.selected!, destination: to, uidMap };
   }
 
   async search(query: { header: Record<string, string> }) {
@@ -62,17 +83,17 @@ class FakeImap {
 
   async messageMove(range: string, to: string) {
     this.calls.push({ op: "move", from: this.selected!, range, to });
-    return true;
+    return this.copyResponse(range, to);
   }
 
   async messageCopy(range: string, to: string) {
     this.calls.push({ op: "copy", from: this.selected!, range, to });
-    return true;
+    return this.copyResponse(range, to);
   }
 
   async messageDelete(range: string) {
     this.calls.push({ op: "expunge", from: this.selected!, range });
-    return true;
+    return !this.failWrites;
   }
 
   writes() {
@@ -96,7 +117,15 @@ beforeEach(() => {
     Spam: [{ uid: 2, messageId: "<p@x>" }],
     "All Mail": [],
     "Folders/Receipts": [],
-    "Labels/Important": [{ uid: 900, messageId: "<a@x>" }]
+    "Labels/Important": [
+      { uid: 900, messageId: "<a@x>" },
+      // Same Message-ID as Sent UID 5, but a different message (the sent copy)
+      { uid: 901, messageId: "<s@x>", size: 777 }
+    ],
+    "Labels/Dupes": [
+      { uid: 950, messageId: "<a@x>" },
+      { uid: 951, messageId: "<a@x>" }
+    ]
   });
   client = imap as unknown as MailClient;
 });
@@ -169,6 +198,32 @@ describe("moveEmailsWith", () => {
   });
 });
 
+describe("write failures are never reported as applied", () => {
+  it("throws when imapflow returns false for MOVE", async () => {
+    imap.failWrites = true;
+    await expect(moveEmailsWith(client, "INBOX", "Archive", [10])).rejects.toThrow(/failed on the IMAP server/);
+  });
+  it("throws when imapflow returns false for COPY", async () => {
+    imap.failWrites = true;
+    await expect(labelEmailsWith(client, "INBOX", "Important", [10])).rejects.toThrow(/failed on the IMAP server/);
+  });
+  it("throws when imapflow returns false for EXPUNGE", async () => {
+    imap.failWrites = true;
+    await expect(unlabelEmailsWith(client, "INBOX", "Important", [10])).rejects.toThrow(/failed on the IMAP server/);
+  });
+  it("reports UIDs missing from the UIDPLUS map as skipped", async () => {
+    imap.unconfirmed.add(11);
+    const r = await moveEmailsWith(client, "INBOX", "Archive", [10, 11]);
+    expect(r.applied).toEqual([10]);
+    expect(r.skipped).toEqual([{ uid: 11, reason: "server did not confirm this message" }]);
+  });
+  it("treats a successful command without UIDPLUS as applying to all sent UIDs", async () => {
+    imap.noUidPlus = true;
+    const r = await labelEmailsWith(client, "INBOX", "Important", [10, 11]);
+    expect(r.applied).toEqual([10, 11]);
+  });
+});
+
 describe("trashEmailsWith", () => {
   it("moves to Trash, never expunges", async () => {
     const r = await trashEmailsWith(client, "Sent", [5]);
@@ -183,6 +238,11 @@ describe("trashEmailsWith", () => {
 });
 
 describe("labelEmailsWith", () => {
+  it("inspects the source read-only", async () => {
+    await labelEmailsWith(client, "INBOX", "Important", [10]);
+    expect(imap.calls[0]).toEqual({ op: "lock", path: "INBOX", readOnly: true });
+  });
+
   it("copies into the label mailbox and leaves the source alone", async () => {
     const r = await labelEmailsWith(client, "INBOX", "Important", [11, 12]);
     expect(r.applied).toEqual([11, 12]);
@@ -213,6 +273,21 @@ describe("unlabelEmailsWith", () => {
   it("reads the source folder read-only", async () => {
     await unlabelEmailsWith(client, "INBOX", "Important", [10]);
     expect(imap.calls[0]).toEqual({ op: "lock", path: "INBOX", readOnly: true });
+  });
+
+  it("does not confuse a different message that shares the Message-ID", async () => {
+    // Sent UID 5 and Labels/Important UID 901 share <s@x> but differ in size.
+    const r = await unlabelEmailsWith(client, "Sent", "Important", [5]);
+    expect(r.applied).toEqual([]);
+    expect(r.skipped).toEqual([{ uid: 5, reason: "does not have label 'Labels/Important'" }]);
+    expect(imap.writes()).toEqual([]);
+  });
+
+  it("skips ambiguous matches instead of expunging several copies", async () => {
+    const r = await unlabelEmailsWith(client, "INBOX", "Dupes", [10]);
+    expect(r.applied).toEqual([]);
+    expect(r.skipped[0].reason).toMatch(/ambiguous: 2 identical copies/);
+    expect(imap.writes()).toEqual([]);
   });
 
   it("never expunges when nothing matches", async () => {

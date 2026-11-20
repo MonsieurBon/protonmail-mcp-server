@@ -3,7 +3,7 @@
 A Model Context Protocol (MCP) server for Proton Mail — read and organize email through Proton Bridge. **It cannot send email and cannot permanently delete email.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.12-brightgreen.svg)](https://nodejs.org/)
 
 > Fork of [de-Blanck/protonmail-mcp-server](https://github.com/de-Blanck/protonmail-mcp-server), adding tools to organize email (move, label, trash) while keeping sending impossible.
 
@@ -25,7 +25,7 @@ Connect Claude (or any MCP client) to your Proton Mail so it can search, list, r
 
 ## Prerequisites
 
-- **Node.js 18+**
+- **Node.js 22.12+**
 - **Proton Bridge** running on your machine with IMAP enabled
 - Your **Bridge-specific IMAP credentials** (not your Proton account password)
 
@@ -126,7 +126,9 @@ All write tools take a source `folder` and the `uids` of emails in that folder (
 | `proton_label_emails` | Adds a label; the email stays where it is | any except Trash/Spam | `Labels/*` |
 | `proton_unlabel_emails` | Removes a label; the email is not moved or deleted | any except Trash/Spam | `Labels/*` |
 
-How these map onto Proton Bridge's IMAP model: labelling is a `COPY` into `Labels/<name>`; unlabelling finds the email inside `Labels/<name>` by Message-ID and expunges it *from that label mailbox only*, which Bridge interprets as removing the label. That is the only `EXPUNGE` the server ever issues.
+How these map onto Proton Bridge's IMAP model: labelling is a `COPY` into `Labels/<name>`; unlabelling finds the email inside `Labels/<name>` by Message-ID, size and internal date, and expunges it *from that label mailbox only*, which Bridge interprets as removing the label. That is the only `EXPUNGE` the server ever issues. If more than one copy in the label matches, the email is skipped rather than guessed.
+
+A write is only reported as applied once the IMAP server has confirmed it (via the UIDPLUS map where available); a rejected command is returned as an error.
 
 `proton_trash_emails` is annotated `destructiveHint: true`, so MCP clients that support it can ask for confirmation before running it.
 
