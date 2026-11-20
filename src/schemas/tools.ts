@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { ResponseFormat } from "../types.js";
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../constants.js";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MAX_BATCH_SIZE } from "../constants.js";
+
+const ResponseFormatField = z
+  .nativeEnum(ResponseFormat)
+  .default(ResponseFormat.MARKDOWN)
+  .describe("Output format: 'markdown' or 'json'");
 
 // ── Shared pagination schema ────────────────────────────────────
 
@@ -114,3 +119,58 @@ export const SearchEmailsInputSchema = z
   .strict();
 
 export type SearchEmailsInput = z.infer<typeof SearchEmailsInputSchema>;
+
+// ── Write tool schemas ──────────────────────────────────────────
+
+const UidsSchema = z
+  .array(z.number().int().positive())
+  .min(1)
+  .max(MAX_BATCH_SIZE)
+  .describe(`IMAP UIDs of the emails in the source folder (1–${MAX_BATCH_SIZE} per call)`);
+
+const SourceFolderSchema = FolderSchema
+  .describe("Folder the emails are currently in (the folder their UIDs came from)");
+
+const LabelSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[^\x00-\x1f\x7f]+$/, "Label must not contain control characters")
+  .describe("Label name, e.g. 'Important' or 'Labels/Important'. Must already exist.");
+
+export const MoveEmailsInputSchema = z
+  .object({
+    folder: SourceFolderSchema,
+    destination: z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^[^\x00-\x1f\x7f]+$/, "Folder name must not contain control characters")
+      .describe("Destination: 'INBOX', 'Archive' or a user folder like 'Folders/Receipts'. Must already exist."),
+    uids: UidsSchema,
+    response_format: ResponseFormatField
+  })
+  .strict();
+
+export type MoveEmailsInput = z.infer<typeof MoveEmailsInputSchema>;
+
+export const TrashEmailsInputSchema = z
+  .object({
+    folder: SourceFolderSchema,
+    uids: UidsSchema,
+    response_format: ResponseFormatField
+  })
+  .strict();
+
+export type TrashEmailsInput = z.infer<typeof TrashEmailsInputSchema>;
+
+export const LabelEmailsInputSchema = z
+  .object({
+    folder: SourceFolderSchema,
+    label: LabelSchema,
+    uids: UidsSchema,
+    response_format: ResponseFormatField
+  })
+  .strict();
+
+export type LabelEmailsInput = z.infer<typeof LabelEmailsInputSchema>;

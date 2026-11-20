@@ -13,3 +13,6 @@ export const DEFAULT_BRIDGE_PORT = 1143;
 
 /** Connection timeout in milliseconds */
 export const CONNECTION_TIMEOUT = 30000;
+
+/** Maximum number of emails a single write tool call may touch */
+export const MAX_BATCH_SIZE = 50;

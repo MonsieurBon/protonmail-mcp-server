@@ -12,6 +12,7 @@ import type {
   PaginatedResult
 } from "../types.js";
 import { ResponseFormat } from "../types.js";
+import type { ActionResult } from "../services/mail-actions.js";
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -146,4 +147,36 @@ export function formatEmailFull(
   lines.push("## Body", "", email.body || "(no plain text body)");
 
   return truncateIfNeeded(lines.join("\n"));
+}
+
+// ── Write action formatting ─────────────────────────────────────
+
+const ACTION_VERBS: Record<ActionResult["action"], string> = {
+  move: "Moved",
+  trash: "Moved to Trash",
+  label: "Labelled",
+  unlabel: "Removed label from"
+};
+
+export function formatActionResult(
+  result: ActionResult,
+  format: ResponseFormat
+): string {
+  if (format === ResponseFormat.JSON) {
+    return JSON.stringify(result, null, 2);
+  }
+  const target = result.action === "trash" ? "" : ` (${result.target})`;
+  const lines = [
+    `${ACTION_VERBS[result.action]} ${result.applied.length} email(s) in '${result.source}'${target}.`
+  ];
+  if (result.applied.length > 0) lines.push(`- Applied to UIDs: ${result.applied.join(", ")}`);
+  if (result.notFound.length > 0) lines.push(`- Not found in '${result.source}': ${result.notFound.join(", ")}`);
+  for (const s of result.skipped) lines.push(`- Skipped UID ${s.uid}: ${s.reason}`);
+  if (result.action === "trash" && result.applied.length > 0) {
+    lines.push("", "These emails can be restored from Trash in Proton Mail.");
+  }
+  if ((result.action === "move" || result.action === "trash") && result.applied.length > 0) {
+    lines.push("Note: UIDs change when emails move; list the destination folder to get their new UIDs.");
+  }
+  return lines.join("\n");
 }

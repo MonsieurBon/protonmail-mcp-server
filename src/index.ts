@@ -2,9 +2,10 @@
 /**
  * Proton Mail MCP Server
  *
- * Connects to Proton Bridge via IMAP to provide read-only email access
- * through the Model Context Protocol. Designed to run locally alongside
- * Proton Bridge on the user's machine.
+ * Connects to Proton Bridge via IMAP to read and organize email
+ * (move, label, unlabel, trash) through the Model Context Protocol.
+ * It cannot send email and cannot permanently delete email.
+ * Designed to run locally alongside Proton Bridge on the user's machine.
  *
  * Environment variables:
  *   PROTON_BRIDGE_USER     — Bridge IMAP username (required)
@@ -20,14 +21,28 @@ import {
   ListFoldersInputSchema,
   ListEmailsInputSchema,
   GetEmailInputSchema,
-  SearchEmailsInputSchema
+  SearchEmailsInputSchema,
+  MoveEmailsInputSchema,
+  TrashEmailsInputSchema,
+  LabelEmailsInputSchema
 } from "./schemas/tools.js";
 import type {
   ListFoldersInput,
   ListEmailsInput,
   GetEmailInput,
-  SearchEmailsInput
+  SearchEmailsInput,
+  MoveEmailsInput,
+  TrashEmailsInput,
+  LabelEmailsInput
 } from "./schemas/tools.js";
+import {
+  moveEmails,
+  trashEmails,
+  labelEmails,
+  unlabelEmails
+} from "./services/mail-actions.js";
+import type { ActionResult } from "./services/mail-actions.js";
+import { FolderPolicyError } from "./services/folder-policy.js";
 import {
   listFolders,
   listEmails,
@@ -37,8 +52,10 @@ import {
 import {
   formatFolders,
   formatEmailList,
-  formatEmailFull
+  formatEmailFull,
+  formatActionResult
 } from "./tools/formatters.js";
+import { ResponseFormat } from "./types.js";
 import type { PaginatedResult, EmailMessage } from "./types.js";
 
 // ── Server instance ─────────────────────────────────────────────
@@ -327,6 +344,127 @@ Examples:
       return handleError(error);
     }
   }
+);
+
+// ── Write tools ─────────────────────────────────────────────────
+// There is deliberately no send tool and no permanent delete.
+
+async function runAction(
+  action: () => Promise<ActionResult>,
+  format: ResponseFormat
+) {
+  try {
+    const result = await action();
+    return {
+      content: [{ type: "text" as const, text: formatActionResult(result, format) }]
+    };
+  } catch (error) {
+    if (error instanceof FolderPolicyError) {
+      return {
+        isError: true as const,
+        content: [{ type: "text" as const, text: `Not allowed: ${error.message}` }]
+      };
+    }
+    return handleError(error);
+  }
+}
+
+const WRITE_TOOL_NOTES = `
+Limits: at most 50 emails per call. Never touches emails in Trash or Spam. Never creates folders or labels.
+UIDs are per folder: pass UIDs obtained from proton_list_emails / proton_search_emails on the same folder.`;
+
+server.registerTool(
+  "proton_move_emails",
+  {
+    title: "Move Proton Mail Emails",
+    description: `Move emails from one folder to another.
+
+Allowed sources: INBOX, Archive, Sent, Folders/*. Allowed destinations: INBOX, Archive, Folders/*.
+To delete, use proton_trash_emails. To tag without moving, use proton_label_emails.
+${WRITE_TOOL_NOTES}
+
+Examples:
+  - "Archive these newsletters" -> proton_move_emails({ folder: "INBOX", destination: "Archive", uids: [101, 102] })
+  - "File this under Receipts" -> proton_move_emails({ folder: "INBOX", destination: "Folders/Receipts", uids: [1234] })`,
+    inputSchema: MoveEmailsInputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  async (params: MoveEmailsInput) =>
+    runAction(() => moveEmails(params.folder, params.destination, params.uids), params.response_format)
+);
+
+server.registerTool(
+  "proton_trash_emails",
+  {
+    title: "Move Proton Mail Emails to Trash",
+    description: `Delete emails by moving them to Trash. This is recoverable: emails stay in Trash until the user empties it in Proton Mail. There is no permanent delete.
+
+Allowed sources: INBOX, Archive, Sent, Folders/*.
+${WRITE_TOOL_NOTES}
+
+Examples:
+  - "Delete these spammy promos" -> proton_trash_emails({ folder: "INBOX", uids: [201, 202, 203] })`,
+    inputSchema: TrashEmailsInputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  async (params: TrashEmailsInput) =>
+    runAction(() => trashEmails(params.folder, params.uids), params.response_format)
+);
+
+server.registerTool(
+  "proton_label_emails",
+  {
+    title: "Label Proton Mail Emails",
+    description: `Apply an existing label to emails. The emails stay in their current folder.
+
+Labels appear in proton_list_folders as 'Labels/<name>'. The label must already exist.
+${WRITE_TOOL_NOTES}
+
+Examples:
+  - "Label these as Important" -> proton_label_emails({ folder: "INBOX", label: "Important", uids: [301, 302] })`,
+    inputSchema: LabelEmailsInputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  async (params: LabelEmailsInput) =>
+    runAction(() => labelEmails(params.folder, params.label, params.uids), params.response_format)
+);
+
+server.registerTool(
+  "proton_unlabel_emails",
+  {
+    title: "Remove Label from Proton Mail Emails",
+    description: `Remove a label from emails. The emails themselves are not moved or deleted.
+
+Pass the folder and UIDs where you found the emails (e.g. INBOX); they are matched inside the label by Message-ID.
+${WRITE_TOOL_NOTES}
+
+Examples:
+  - "Remove the Important label from these" -> proton_unlabel_emails({ folder: "INBOX", label: "Important", uids: [301] })`,
+    inputSchema: LabelEmailsInputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  async (params: LabelEmailsInput) =>
+    runAction(() => unlabelEmails(params.folder, params.label, params.uids), params.response_format)
 );
 
 // ── Start server ────────────────────────────────────────────────
